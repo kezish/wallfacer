@@ -16,10 +16,14 @@ func TestClaudeEntrypointForwardsArgs(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires Unix shell")
 	}
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available on PATH")
+	}
 	tempDir := t.TempDir()
 	argsPath := filepath.Join(tempDir, "claude.args")
 	fakeClaudePath := filepath.Join(tempDir, "claude")
-	fakeClaude := `#!/bin/bash
+	fakeClaude := "#!" + bashPath + `
 set -euo pipefail
 printf '%s\n' "$@" > "` + argsPath + `"
 `
@@ -27,7 +31,7 @@ printf '%s\n' "$@" > "` + argsPath + `"
 		t.Fatalf("write fake claude: %v", err)
 	}
 
-	cmd := exec.Command("/bin/bash", filepath.Join("testdata", "entrypoints", "claude.sh"), "-p", "test prompt")
+	cmd := exec.Command(bashPath, filepath.Join("testdata", "entrypoints", "claude.sh"), "-p", "test prompt")
 	cmd.Env = append(os.Environ(), "PATH="+tempDir+":"+os.Getenv("PATH"))
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("run entrypoint: %v", err)
