@@ -1,4 +1,4 @@
-SHELL            := /bin/bash
+SHELL            := bash
 
 # Load .env if it exists
 -include .env
