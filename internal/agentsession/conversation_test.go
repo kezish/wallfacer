@@ -576,6 +576,13 @@ func TestIsErrorResult_True(t *testing.T) {
 	}
 }
 
+func TestIsErrorResult_ResultWithStringMessage(t *testing.T) {
+	raw := []byte(`{"type":"result","is_error":true,"message":"agent failed","result":"agent failed"}`)
+	if !IsErrorResult(raw) {
+		t.Fatal("expected result error with string message to be recognized")
+	}
+}
+
 func TestIsErrorResult_False(t *testing.T) {
 	raw := `{"type":"result","is_error":false,"result":"all good"}`
 	if IsErrorResult([]byte(raw)) {

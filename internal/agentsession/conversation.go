@@ -365,6 +365,23 @@ func ExtractResultText(raw []byte) string {
 
 // IsStaleSessionError checks if the NDJSON error result indicates a missing
 // or expired session by inspecting the structured error fields.
+func assistantStopReason(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var msg struct {
+		Role       string `json:"role"`
+		StopReason string `json:"stopReason"`
+	}
+	if json.Unmarshal(raw, &msg) != nil || msg.Role != "assistant" {
+		return "", false
+	}
+	return msg.StopReason, true
+}
+
+// IsStaleSessionError checks if a structured harness error indicates a missing
+// or expired session. Error payloads stay opaque until their event type is
+// known, because different harnesses use different JSON shapes for "message".
 func IsStaleSessionError(raw []byte) bool {
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	for _, rawLine := range slices.Backward(lines) {
@@ -374,33 +391,28 @@ func IsStaleSessionError(raw []byte) bool {
 		}
 
 		var envelope struct {
-			Type    string `json:"type"`
-			IsError bool   `json:"is_error"`
-			Message struct {
-				Role       string `json:"role"`
-				StopReason string `json:"stopReason"`
-			} `json:"message"`
-			Messages []struct {
-				Role       string `json:"role"`
-				StopReason string `json:"stopReason"`
-			} `json:"messages"`
+			Type     string            `json:"type"`
+			IsError  bool              `json:"is_error"`
+			Message  json.RawMessage   `json:"message"`
+			Messages []json.RawMessage `json:"messages"`
 		}
 		if json.Unmarshal([]byte(line), &envelope) != nil {
 			continue
 		}
 
 		isError := envelope.Type == "result" && envelope.IsError
-		if envelope.Type == "message_end" && envelope.Message.Role == "assistant" {
-			isError = envelope.Message.StopReason == "error" ||
-				envelope.Message.StopReason == "aborted"
+		if envelope.Type == "message_end" {
+			if stop, ok := assistantStopReason(envelope.Message); ok {
+				isError = stop == "error" || stop == "aborted"
+			}
 		}
 		if envelope.Type == "agent_end" {
 			for i := len(envelope.Messages) - 1; i >= 0; i-- {
-				if envelope.Messages[i].Role != "assistant" {
+				stop, ok := assistantStopReason(envelope.Messages[i])
+				if !ok {
 					continue
 				}
-				isError = envelope.Messages[i].StopReason == "error" ||
-					envelope.Messages[i].StopReason == "aborted"
+				isError = stop == "error" || stop == "aborted"
 				break
 			}
 		}
@@ -429,25 +441,19 @@ func IsStaleSessionError(raw []byte) bool {
 	return false
 }
 
-// IsErrorResult checks if the NDJSON output contains an error result.
 func IsErrorResult(raw []byte) bool {
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	for _, line := range slices.Backward(lines) {
-		line := strings.TrimSpace(line)
+		line = strings.TrimSpace(line)
 		if len(line) == 0 || line[0] != '{' {
 			continue
 		}
+
 		var obj struct {
-			Type    string `json:"type"`
-			IsError bool   `json:"is_error"`
-			Message struct {
-				Role       string `json:"role"`
-				StopReason string `json:"stopReason"`
-			} `json:"message"`
-			Messages []struct {
-				Role       string `json:"role"`
-				StopReason string `json:"stopReason"`
-			} `json:"messages"`
+			Type     string            `json:"type"`
+			IsError  bool              `json:"is_error"`
+			Message  json.RawMessage   `json:"message"`
+			Messages []json.RawMessage `json:"messages"`
 		}
 		if json.Unmarshal([]byte(line), &obj) != nil {
 			continue
@@ -455,14 +461,15 @@ func IsErrorResult(raw []byte) bool {
 		if obj.Type == "result" {
 			return obj.IsError
 		}
-		if obj.Type == "message_end" && obj.Message.Role == "assistant" {
-			return obj.Message.StopReason == "error" || obj.Message.StopReason == "aborted"
+		if obj.Type == "message_end" {
+			if stop, ok := assistantStopReason(obj.Message); ok {
+				return stop == "error" || stop == "aborted"
+			}
 		}
 		if obj.Type == "agent_end" {
 			for i := len(obj.Messages) - 1; i >= 0; i-- {
-				if obj.Messages[i].Role == "assistant" {
-					return obj.Messages[i].StopReason == "error" ||
-						obj.Messages[i].StopReason == "aborted"
+				if stop, ok := assistantStopReason(obj.Messages[i]); ok {
+					return stop == "error" || stop == "aborted"
 				}
 			}
 		}
