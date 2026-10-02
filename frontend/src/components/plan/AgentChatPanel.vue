@@ -125,7 +125,7 @@ defineExpose({
     <ChatComposer
       :streaming="chat.streaming.value"
       variant="panel"
-      @send="(t, h) => chat.sendMessage(t, { harness: h })"
+      @send="(t, h, m) => chat.sendMessage(t, { harness: h, model: m })"
       @interrupt="chat.onInterrupt"
     />
   </aside>

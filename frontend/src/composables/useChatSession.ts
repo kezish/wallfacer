@@ -29,7 +29,12 @@ import {
   extractPrimaryModel,
 } from '../lib/agentBubble';
 
-export interface QueueItem { id: number; text: string }
+export interface QueueItem {
+  id: number;
+  text: string;
+  harness?: string;
+  model?: string;
+}
 
 export interface ChatSession {
   // ── Conversation state ──
@@ -46,7 +51,7 @@ export interface ChatSession {
 
   // ── Actions ──
   loadHistory: () => Promise<void>;
-  sendMessage: (text: string, opts?: { threadID?: string; harness?: string }) => Promise<void>;
+  sendMessage: (text: string, opts?: { threadID?: string; harness?: string; model?: string }) => Promise<void>;
   onInterrupt: () => Promise<void>;
   clearHistory: () => Promise<void>;
   appendSystem: (text: string) => void;
@@ -376,7 +381,7 @@ export function useChatSession(): ChatSession {
     titleTimer = setTimeout(() => void tick(), 1500);
   }
 
-  async function sendMessage(text: string, opts?: { threadID?: string; harness?: string }): Promise<void> {
+  async function sendMessage(text: string, opts?: { threadID?: string; harness?: string; model?: string }): Promise<void> {
     let targetId = opts?.threadID ?? activeThreadId.value;
     // First message of a "New chat" draft: create the server thread now and
     // send to it. The backend auto-titles it from this message. Queue drains
@@ -391,7 +396,7 @@ export function useChatSession(): ChatSession {
       return;
     }
     if (streaming.value) {
-      enqueue(text, targetId);
+      enqueue(text, targetId, opts);
       return;
     }
 
@@ -411,6 +416,7 @@ export function useChatSession(): ChatSession {
     const thread = threads.value[targetId];
     const body: Record<string, string> = { message: text, thread: targetId };
     if (opts?.harness) body.harness = opts.harness; // per-turn harness override
+    if (opts?.model) body.model = opts.model; // optional harness-specific model override
     if (thread?.mode === 'task') {
       if (thread.task_id) body.focused_task = thread.task_id;
     } else {
@@ -499,11 +505,20 @@ export function useChatSession(): ChatSession {
 
   let queueSeq = 0;
 
-  function enqueue(text: string, threadID: string) {
+  function enqueue(
+    text: string,
+    threadID: string,
+    opts?: { harness?: string; model?: string },
+  ) {
     const t = threads.value[threadID];
     if (!t) return;
     if (t.queue.length === 0) t.enqueuedAt = Date.now();
-    t.queue.push({ id: ++queueSeq, text });
+    t.queue.push({
+      id: ++queueSeq,
+      text,
+      harness: opts?.harness,
+      model: opts?.model,
+    });
   }
 
   const currentQueue = computed(() => {
@@ -556,7 +571,11 @@ export function useChatSession(): ChatSession {
     const next = t.queue.shift();
     if (!next) return;
     t.enqueuedAt = t.queue.length > 0 ? Date.now() : 0;
-    void sendMessage(next.text, { threadID: bestId });
+    void sendMessage(next.text, {
+      threadID: bestId,
+      harness: next.harness,
+      model: next.model,
+    });
   }
 
   // ── Threads (sessions) ─────────────────────────────────────────────

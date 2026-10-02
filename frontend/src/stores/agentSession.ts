@@ -76,7 +76,7 @@ export interface AgentSession {
   task_id: string;
   unread: boolean;
   scrollTop: number;
-  queue: { id: number; text: string }[];
+  queue: { id: number; text: string; harness?: string; model?: string }[];
   enqueuedAt: number;
   lastViewedAt: number;
   // Server timestamps (epoch ms). `updated` tracks last activity (touched on

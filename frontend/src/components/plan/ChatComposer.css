@@ -112,6 +112,25 @@
   margin-left: auto;
 }
 
+.pcp-model {
+  width: 150px;
+  min-width: 90px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-pill);
+  background: var(--bg-sunk);
+  color: var(--ink-2);
+  font: 400 11px / 1 var(--font-mono);
+}
+
+.pcp-model:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+
 .pcp-send-wrap {
   display: inline-flex;
   align-items: center;

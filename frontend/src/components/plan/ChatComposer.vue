@@ -19,7 +19,7 @@ withDefaults(defineProps<{
   placeholder: 'Message…',
 });
 
-const emit = defineEmits<{ send: [text: string, harness?: string]; interrupt: [] }>();
+const emit = defineEmits<{ send: [text: string, harness?: string, model?: string]; interrupt: [] }>();
 
 // Harness override for this composer. '' means "use the agent default". Only
 // installed harnesses are offered (from /api/config sandboxes), and the choice
@@ -48,8 +48,23 @@ watchEffect(() => {
       : opts[0];
   }
 });
+const MODEL_KEY_PREFIX = 'wallfacer-chat-model:';
+const model = ref<string>('');
+
 watch(harness, (v) => {
-  if (v && typeof localStorage !== 'undefined') localStorage.setItem(HARNESS_KEY, v);
+  if (!v || typeof localStorage === 'undefined') {
+    model.value = '';
+    return;
+  }
+  localStorage.setItem(HARNESS_KEY, v);
+  model.value = localStorage.getItem(MODEL_KEY_PREFIX + v) || '';
+}, { immediate: true });
+
+watch(model, (v) => {
+  if (!harness.value || typeof localStorage === 'undefined') return;
+  const key = MODEL_KEY_PREFIX + harness.value;
+  if (v.trim()) localStorage.setItem(key, v.trim());
+  else localStorage.removeItem(key);
 });
 
 const inputEl = ref<HTMLTextAreaElement | null>(null);
@@ -83,7 +98,7 @@ const {
 function doSend() {
   const text = inputText.value.trim();
   if (!text) return;
-  emit('send', text, harness.value || undefined);
+  emit('send', text, harness.value || undefined, model.value.trim() || undefined);
   // Clear the draft after sending OR queuing. A message queued mid-stream is
   // already committed (it emitted above and shows as a queued chip), so leaving
   // its text in the box reads as "not sent" and invites a duplicate send.
@@ -181,6 +196,14 @@ defineExpose({
           :include-default="false"
           aria-label="Harness for this chat"
           class="pcp-harness"
+        />
+        <input
+          v-model="model"
+          class="pcp-model"
+          type="text"
+          placeholder="Model (optional)"
+          aria-label="Model override for this chat"
+          title="Optional model override passed verbatim to the selected harness"
         />
         <!-- The send affordance is hidden on an empty draft and springs in once
              there is something to send (Slack-style). Interrupt is exempt: while
