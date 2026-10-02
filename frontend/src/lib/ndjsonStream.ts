@@ -10,7 +10,7 @@
 // It reuses the exact per-frame helpers used by the one-shot functions, so the
 // final state is identical to running those functions over the full buffer.
 
-import { frameError } from './agentBubble';
+import { frameTurnError } from './agentBubble';
 import {
   parseFrameLine,
   accumulateFrame,
@@ -55,8 +55,8 @@ export function createNdjsonStreamParser(): NdjsonStreamParser {
     const frame = parseFrameLine(line);
     if (!frame) return;
     accumulateFrame(frame, acc);
-    const err = frameError(frame);
-    if (err) errorText = err; // last error wins
+    const errorUpdate = frameTurnError(frame);
+    if (errorUpdate !== undefined) errorText = errorUpdate;
     const m = frameModel(frame);
     if (m) {
       if (frame.type === 'system' && !primaryModel) primaryModel = m; // first init wins

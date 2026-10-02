@@ -100,6 +100,43 @@ describe('createNdjsonStreamParser model capture', () => {
 
 
 describe('createNdjsonStreamParser Pi', () => {
+  it('clears a recoverable Pi connection error after a successful message_end', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          model: 'gpt-5.6-sol',
+          stopReason: 'error',
+          errorMessage: 'Connection error.',
+          content: [],
+        },
+      }),
+      JSON.stringify({
+        type: 'message_start',
+        message: { role: 'assistant', model: 'gpt-5.6-sol', content: [] },
+      }),
+      JSON.stringify({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'text_delta', delta: 'recovered' },
+      }),
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          model: 'gpt-5.6-sol',
+          stopReason: 'stop',
+          content: [{ type: 'text', text: 'recovered' }],
+        },
+      }),
+    ].join('\n');
+
+    const s = runChunked(raw, 4);
+    expect(s.text).toBe('recovered');
+    expect(s.errorText).toBe('');
+    expect(s.model).toBe('gpt-5.6-sol');
+  });
+
   it('streams Pi text_delta frames and ignores duplicate message_end text', () => {
     const raw = [
       JSON.stringify({ type: 'message_start', message: { role: 'assistant', model: 'auto/coding', content: [] } }),

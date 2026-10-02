@@ -66,25 +66,27 @@ export function frameAssistantText(frame: Frame): string {
   return text;
 }
 
-/** The error string a single frame reports, or '' if it is not an error result. */
-export function frameError(frame: Frame): string {
-  if (frame.type === 'result' && frame.is_error && frame.result) return String(frame.result);
-  if (
-    frame.type === 'message_end' &&
-    frame.message?.role === 'assistant' &&
-    (frame.message.stopReason === 'error' || frame.message.stopReason === 'aborted')
-  ) {
-    return frame.message.errorMessage || frame.message.stopReason;
+/**
+ * Return a turn-level error update for a terminal frame.
+ *
+ * undefined means "this frame says nothing about the final turn status".
+ * An empty string means "this terminal frame completed successfully", which
+ * intentionally clears an earlier recoverable error from the same turn.
+ *
+ * Tool-call failures are trajectory events, not turn-terminal failures; they
+ * are rendered in activity rows and do not make a recovered turn stay red.
+ */
+export function frameTurnError(frame: Frame): string | undefined {
+  if (frame.type === 'result') {
+    return frame.is_error && frame.result ? String(frame.result) : '';
   }
-  if (frame.type === 'tool_execution_end' && frame.isError) {
-    if (typeof frame.result === 'string') return frame.result;
-    try {
-      return JSON.stringify(frame.result ?? '');
-    } catch {
-      return String(frame.result ?? '');
+  if (frame.type === 'message_end' && frame.message?.role === 'assistant') {
+    if (frame.message.stopReason === 'error' || frame.message.stopReason === 'aborted') {
+      return frame.message.errorMessage || frame.message.stopReason;
     }
+    return '';
   }
-  return '';
+  return undefined;
 }
 
 /** Concatenate all `assistant` text blocks from a raw NDJSON stream. */
@@ -122,17 +124,16 @@ export function extractPrimaryModel(raw: string): string {
   return '';
 }
 
-/** Return the most recent `result.is_error` message from a raw NDJSON stream. */
+/** Return the final turn-level error after applying terminal frames in order. */
 export function extractError(raw: string): string {
-  const lines = raw.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const frame = parseFrameLine(lines[i]);
-    if (frame) {
-      const err = frameError(frame);
-      if (err) return err;
-    }
+  let errorText = '';
+  for (const line of raw.split('\n')) {
+    const frame = parseFrameLine(line);
+    if (!frame) continue;
+    const update = frameTurnError(frame);
+    if (update !== undefined) errorText = update;
   }
-  return '';
+  return errorText;
 }
 
 export function activityIcon(kind: ActivityRow['kind']): string {

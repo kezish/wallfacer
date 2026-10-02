@@ -74,6 +74,62 @@ describe('extractError', () => {
     ].join('\n');
     expect(extractError(raw)).toBe('last');
   });
+  it('clears an earlier Pi error when a later assistant message succeeds', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          stopReason: 'error',
+          errorMessage: 'Connection error.',
+          content: [],
+        },
+      }),
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          stopReason: 'stop',
+          content: [{ type: 'text', text: 'recovered' }],
+        },
+      }),
+    ].join('\n');
+    expect(extractError(raw)).toBe('');
+  });
+
+  it('keeps a final Pi assistant error', () => {
+    const raw = JSON.stringify({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        stopReason: 'error',
+        errorMessage: 'Connection error.',
+        content: [],
+      },
+    });
+    expect(extractError(raw)).toBe('Connection error.');
+  });
+
+  it('does not promote a recovered tool error to a turn error', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'tool_execution_end',
+        toolName: 'bash',
+        isError: true,
+        result: 'command failed',
+      }),
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          stopReason: 'stop',
+          content: [{ type: 'text', text: 'handled it' }],
+        },
+      }),
+    ].join('\n');
+    expect(extractError(raw)).toBe('');
+  });
+
   it('ignores results without is_error', () => {
     const raw = JSON.stringify({ type: 'result', is_error: false, result: 'ok' });
     expect(extractError(raw)).toBe('');
