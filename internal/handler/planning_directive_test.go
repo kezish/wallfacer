@@ -182,6 +182,20 @@ func TestExtractAssistantLines_TextBlocksInOrder(t *testing.T) {
 	}
 }
 
+func TestExtractAssistantLines_PiMessageEnd(t *testing.T) {
+	raw := []byte(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hello\\nfrom pi"}],"stopReason":"stop"}}`)
+	got := extractAssistantLines(raw)
+	want := []string{"hello", "from pi"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d lines, want %d (%q)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestExtractAssistantLines_SkipsNonTextBlocks(t *testing.T) {
 	raw := []byte(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1"}]}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"only this"}]}}`)

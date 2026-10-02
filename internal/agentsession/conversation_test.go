@@ -661,3 +661,29 @@ func TestClear_RemoveError(t *testing.T) {
 		t.Error("expected error when messages file is a non-empty directory")
 	}
 }
+
+
+func TestExtractSessionID_PiSessionHeader(t *testing.T) {
+	raw := []byte(`{"type":"session","version":3,"id":"pi-session-123","cwd":"/tmp"}
+{"type":"agent_start"}`)
+	if got := ExtractSessionID(raw); got != "pi-session-123" {
+		t.Fatalf("ExtractSessionID = %q, want pi-session-123", got)
+	}
+}
+
+func TestExtractResultText_PiMessageEnd(t *testing.T) {
+	raw := []byte(`{"type":"message_start","message":{"role":"assistant","content":[]}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"PI_JSON_OK"}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"PI_JSON_OK"}],"stopReason":"stop"}}
+{"type":"agent_end","messages":[]}`)
+	if got := ExtractResultText(raw); got != "PI_JSON_OK" {
+		t.Fatalf("ExtractResultText = %q, want PI_JSON_OK", got)
+	}
+}
+
+func TestIsErrorResult_PiMessageEnd(t *testing.T) {
+	raw := []byte(`{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error"}}`)
+	if !IsErrorResult(raw) {
+		t.Fatal("expected Pi stopReason=error to be recognized")
+	}
+}

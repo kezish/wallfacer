@@ -1,6 +1,9 @@
 package agentsession
 
 import (
+	"encoding/json"
+	"strings"
+
 	"latere.ai/x/pkg/ndjson"
 )
 
@@ -51,15 +54,66 @@ func (r resultLine) toRoundUsage() RoundUsage {
 //
 // Returns ok=false when no usable result line is found.
 func ExtractUsage(raw []byte) (RoundUsage, bool) {
-	// Scan backwards for the terminal result line. The candidate gate accepts
-	// only "type":"result" lines and plain result-shaped lines (single-blob
-	// outputs carry no explicit type field), excluding non-result lines from
-	// both the terminal match and the fallback.
+	// Claude/Codex-style terminal result frame.
 	obj, ok := ndjson.PreferResultLine(string(raw), true,
 		func(r *resultLine) bool { return r.Type == "result" || r.Type == "" },
 		func(r *resultLine) bool { return r.StopReason != "" })
-	if !ok {
-		return RoundUsage{}, false
+	if ok {
+		return obj.toRoundUsage(), true
 	}
-	return obj.toRoundUsage(), true
+
+	// Pi keeps usage on assistant messages. Prefer agent_end (which carries the
+	// completed conversation), then message_end as a fallback.
+	type piMessage struct {
+		Role       string `json:"role"`
+		StopReason string `json:"stopReason"`
+		Usage      *struct {
+			Input      int `json:"input"`
+			Output     int `json:"output"`
+			CacheRead  int `json:"cacheRead"`
+			CacheWrite int `json:"cacheWrite"`
+		} `json:"usage"`
+	}
+	type piLine struct {
+		Type     string      `json:"type"`
+		Message  *piMessage  `json:"message"`
+		Messages []piMessage `json:"messages"`
+	}
+	toUsage := func(msg *piMessage) (RoundUsage, bool) {
+		if msg == nil || msg.Role != "assistant" || msg.Usage == nil {
+			return RoundUsage{}, false
+		}
+		return RoundUsage{
+			InputTokens:              msg.Usage.Input,
+			OutputTokens:             msg.Usage.Output,
+			CacheReadInputTokens:     msg.Usage.CacheRead,
+			CacheCreationInputTokens: msg.Usage.CacheWrite,
+			StopReason:               msg.StopReason,
+		}, true
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || line[0] != '{' {
+			continue
+		}
+		var pi piLine
+		if json.Unmarshal([]byte(line), &pi) != nil {
+			continue
+		}
+		switch pi.Type {
+		case "agent_end":
+			for j := len(pi.Messages) - 1; j >= 0; j-- {
+				if u, ok := toUsage(&pi.Messages[j]); ok {
+					return u, true
+				}
+			}
+		case "message_end":
+			if u, ok := toUsage(pi.Message); ok {
+				return u, true
+			}
+		}
+	}
+	return RoundUsage{}, false
 }

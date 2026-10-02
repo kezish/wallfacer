@@ -22,6 +22,19 @@ interface ResultLine {
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
   };
+  message?: PiMessage;
+  messages?: PiMessage[];
+}
+
+interface PiMessage {
+  role?: string;
+  stopReason?: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  };
 }
 
 function toTurnUsage(r: ResultLine): TurnUsage {
@@ -31,6 +44,16 @@ function toTurnUsage(r: ResultLine): TurnUsage {
     cacheReadTokens: r.usage?.cache_read_input_tokens ?? 0,
     cacheCreationTokens: r.usage?.cache_creation_input_tokens ?? 0,
     costUSD: r.total_cost_usd ?? 0,
+  };
+}
+
+function piToTurnUsage(msg: PiMessage): TurnUsage {
+  return {
+    inputTokens: msg.usage?.input ?? 0,
+    outputTokens: msg.usage?.output ?? 0,
+    cacheReadTokens: msg.usage?.cacheRead ?? 0,
+    cacheCreationTokens: msg.usage?.cacheWrite ?? 0,
+    costUSD: 0,
   };
 }
 
@@ -63,7 +86,23 @@ export function parseTurnUsage(raw: string | undefined): TurnUsage | null {
     } catch {
       continue;
     }
-    // "result" frames, or untyped single-blob outputs, carry usage.
+    // Pi carries usage on assistant message_end / agent_end frames.
+    if (obj.type === 'agent_end' && obj.messages?.length) {
+      for (let j = obj.messages.length - 1; j >= 0; j--) {
+        const msg = obj.messages[j];
+        if (msg.role === 'assistant' && msg.usage) {
+          const u = piToTurnUsage(msg);
+          return isEmpty(u) ? null : u;
+        }
+      }
+      continue;
+    }
+    if (obj.type === 'message_end' && obj.message?.role === 'assistant' && obj.message.usage) {
+      const u = piToTurnUsage(obj.message);
+      return isEmpty(u) ? null : u;
+    }
+
+    // Claude/Codex "result" frames, or untyped single-blob outputs, carry usage.
     if (obj.type !== 'result' && obj.type !== undefined && obj.type !== '') continue;
     if (fallback === null) fallback = obj;
     if (obj.stop_reason) {

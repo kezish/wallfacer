@@ -117,3 +117,44 @@ describe('parseTurn', () => {
     expect(answer).toBe('Just a reply.');
   });
 });
+
+
+describe('Pi NDJSON', () => {
+  it('parses Pi text deltas without duplicating message_end', () => {
+    const raw = ndjson(
+      { type: 'message_start', message: { role: 'assistant', model: 'auto/coding', content: [] } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'PI' } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '_JSON' } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '_OK' } },
+      {
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          model: 'auto/coding',
+          content: [{ type: 'text', text: 'PI_JSON_OK' }],
+          stopReason: 'stop',
+        },
+      },
+    );
+    const { rows, answer } = parseTurn(raw);
+    expect(rows).toEqual([]);
+    expect(answer).toBe('PI_JSON_OK');
+  });
+
+  it('renders Pi tool execution in the trajectory', () => {
+    const raw = ndjson(
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Checking.' } },
+      { type: 'tool_execution_start', toolCallId: 't1', toolName: 'bash', args: { command: 'pwd' } },
+      { type: 'tool_execution_end', toolCallId: 't1', toolName: 'bash', result: '/tmp', isError: false },
+      { type: 'message_start', message: { role: 'assistant', content: [] } },
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Done.' } },
+      { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } },
+    );
+    const { rows, answer } = parseTurn(raw);
+    expect(rows.map((r) => [r.kind, r.label])).toEqual([
+      ['text', 'note'],
+      ['tool', 'bash'],
+    ]);
+    expect(answer).toBe('Done.');
+  });
+});

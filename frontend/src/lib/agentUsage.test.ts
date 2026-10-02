@@ -41,6 +41,36 @@ describe('parseTurnUsage', () => {
     expect(parseTurnUsage(raw)?.costUSD).toBe(0.02);
   });
 
+  it('reads Pi usage from agent_end', () => {
+    const raw = ndjson(
+      {
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          usage: { input: 144, output: 7, cacheRead: 1024, cacheWrite: 3 },
+          stopReason: 'stop',
+        },
+      },
+      {
+        type: 'agent_end',
+        messages: [
+          {
+            role: 'assistant',
+            usage: { input: 144, output: 7, cacheRead: 1024, cacheWrite: 3 },
+            stopReason: 'stop',
+          },
+        ],
+      },
+    );
+    expect(parseTurnUsage(raw)).toEqual({
+      inputTokens: 144,
+      outputTokens: 7,
+      cacheReadTokens: 1024,
+      cacheCreationTokens: 3,
+      costUSD: 0,
+    });
+  });
+
   it('returns null when there is no usage', () => {
     expect(parseTurnUsage(ndjson({ type: 'assistant', message: { content: [] } }))).toBeNull();
     expect(parseTurnUsage('')).toBeNull();

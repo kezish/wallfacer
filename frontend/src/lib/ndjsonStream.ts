@@ -46,7 +46,7 @@ export interface NdjsonStreamParser {
 
 export function createNdjsonStreamParser(): NdjsonStreamParser {
   let lineBuf = ''; // bytes after the last newline, not yet a complete line
-  const acc: TurnAccumulator = { rows: [], pending: '' };
+  const acc: TurnAccumulator = { rows: [], pending: '', piTextStreamed: false };
   let errorText = '';
   let primaryModel = '';
   let model = '';
@@ -60,7 +60,7 @@ export function createNdjsonStreamParser(): NdjsonStreamParser {
     const m = frameModel(frame);
     if (m) {
       if (frame.type === 'system' && !primaryModel) primaryModel = m; // first init wins
-      if (frame.type === 'assistant') model = m; // last assistant wins
+      if (frame.type !== 'system') model = m; // Claude assistant or Pi message_*
     }
   }
 

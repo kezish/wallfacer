@@ -97,3 +97,30 @@ describe('createNdjsonStreamParser model capture', () => {
     expect(p.state().model).toBe('');
   });
 });
+
+
+describe('createNdjsonStreamParser Pi', () => {
+  it('streams Pi text_delta frames and ignores duplicate message_end text', () => {
+    const raw = [
+      JSON.stringify({ type: 'message_start', message: { role: 'assistant', model: 'auto/coding', content: [] } }),
+      JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'PI' } }),
+      JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '_OK' } }),
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          model: 'auto/coding',
+          content: [{ type: 'text', text: 'PI_OK' }],
+          stopReason: 'stop',
+        },
+      }),
+    ].join('\n');
+
+    const p = createNdjsonStreamParser();
+    for (let i = 0; i < raw.length; i += 3) p.push(raw.slice(i, i + 3));
+    p.finalize();
+    const st = p.state();
+    expect(st.text).toBe('PI_OK');
+    expect(st.model).toBe('auto/coding');
+  });
+});

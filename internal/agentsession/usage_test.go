@@ -57,3 +57,24 @@ func TestExtractUsage_EmptyOrMalformed(t *testing.T) {
 		}
 	}
 }
+
+
+func TestExtractUsage_PiAgentEnd(t *testing.T) {
+	raw := []byte(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input":144,"output":7,"cacheRead":1024,"cacheWrite":3},"stopReason":"stop"}}
+{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input":144,"output":7,"cacheRead":1024,"cacheWrite":3},"stopReason":"stop"}]}`)
+
+	u, ok := ExtractUsage(raw)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if u.InputTokens != 144 || u.OutputTokens != 7 {
+		t.Fatalf("tokens = (%d,%d), want (144,7)", u.InputTokens, u.OutputTokens)
+	}
+	if u.CacheReadInputTokens != 1024 || u.CacheCreationInputTokens != 3 {
+		t.Fatalf("cache tokens = (%d,%d), want (1024,3)",
+			u.CacheReadInputTokens, u.CacheCreationInputTokens)
+	}
+	if u.StopReason != "stop" {
+		t.Fatalf("stop reason = %q, want stop", u.StopReason)
+	}
+}

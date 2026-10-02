@@ -33,7 +33,7 @@ type Message struct {
 	PlanRound int `json:"plan_round,omitempty"`
 }
 
-// ResumeInfo tracks the active Claude Code session for --resume.
+// ResumeInfo tracks the active harness session for resume.
 type ResumeInfo struct {
 	SessionID   string    `json:"session_id"`             // Claude Code session ID
 	LastActive  time.Time `json:"last_active"`            // last interaction timestamp
@@ -250,8 +250,9 @@ func (s *ConversationStore) BuildHistoryContext() string {
 	return b.String()
 }
 
-// ExtractSessionID scans NDJSON output for the first session_id or thread_id
-// field. Returns empty string if not found.
+// ExtractSessionID scans NDJSON output for the first session identifier.
+// Claude/Codex use session_id/thread_id; Pi emits {"type":"session","id":"..."}.
+// Returns empty string if not found.
 func ExtractSessionID(raw []byte) string {
 	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
@@ -259,10 +260,15 @@ func ExtractSessionID(raw []byte) string {
 			continue
 		}
 		var obj struct {
+			Type      string `json:"type"`
+			ID        string `json:"id"`
 			SessionID string `json:"session_id"`
 			ThreadID  string `json:"thread_id"`
 		}
 		if json.Unmarshal([]byte(line), &obj) == nil {
+			if obj.Type == "session" && obj.ID != "" {
+				return obj.ID
+			}
 			if obj.SessionID != "" {
 				return obj.SessionID
 			}
@@ -296,7 +302,41 @@ func ExtractResultText(raw []byte) string {
 		}
 	}
 
-	// Fallback: extract text from assistant message content blocks.
+	// Pi JSON mode emits completed assistant messages as message_end frames.
+	// Prefer the last such frame so multi-message tool turns persist only the
+	// final assistant prose for the round.
+	for _, rawLine := range slices.Backward(lines) {
+		line := strings.TrimSpace(rawLine)
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var obj struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role    string `json:"role"`
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &obj) != nil ||
+			obj.Type != "message_end" ||
+			obj.Message.Role != "assistant" {
+			continue
+		}
+		var text strings.Builder
+		for _, c := range obj.Message.Content {
+			if c.Type == "text" && c.Text != "" {
+				text.WriteString(c.Text)
+			}
+		}
+		if text.Len() > 0 {
+			return text.String()
+		}
+	}
+
+	// Fallback: extract text from Claude assistant message content blocks.
 	var text strings.Builder
 	for _, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
@@ -366,9 +406,31 @@ func IsErrorResult(raw []byte) bool {
 		var obj struct {
 			Type    string `json:"type"`
 			IsError bool   `json:"is_error"`
+			Message struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+			} `json:"message"`
+			Messages []struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+			} `json:"messages"`
 		}
-		if json.Unmarshal([]byte(line), &obj) == nil && obj.Type == "result" {
+		if json.Unmarshal([]byte(line), &obj) != nil {
+			continue
+		}
+		if obj.Type == "result" {
 			return obj.IsError
+		}
+		if obj.Type == "message_end" && obj.Message.Role == "assistant" {
+			return obj.Message.StopReason == "error" || obj.Message.StopReason == "aborted"
+		}
+		if obj.Type == "agent_end" {
+			for i := len(obj.Messages) - 1; i >= 0; i-- {
+				if obj.Messages[i].Role == "assistant" {
+					return obj.Messages[i].StopReason == "error" ||
+						obj.Messages[i].StopReason == "aborted"
+				}
+			}
 		}
 	}
 	return false

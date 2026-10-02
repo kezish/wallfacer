@@ -174,9 +174,9 @@ func tokenize(s string) []string {
 
 // extractAssistantLines walks a stream-json NDJSON payload and returns
 // the assistant-authored text as an ordered list of lines. Only
-// `type: "assistant"` entries contribute; user messages, tool calls,
-// and system metadata are ignored. Each text content block is split on
-// newlines and concatenated in the order it appeared in the stream.
+// Claude `type:"assistant"` and Pi `type:"message_end"` assistant entries
+// contribute; user messages, tool calls, and system metadata are ignored.
+// Each text content block is split on newlines and concatenated in order.
 func extractAssistantLines(raw []byte) []string {
 	var lines []string
 	for rawLine := range strings.SplitSeq(string(raw), "\n") {
@@ -187,6 +187,7 @@ func extractAssistantLines(raw []byte) []string {
 		var obj struct {
 			Type    string `json:"type"`
 			Message struct {
+				Role    string `json:"role"`
 				Content []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -196,7 +197,8 @@ func extractAssistantLines(raw []byte) []string {
 		if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
 			continue
 		}
-		if obj.Type != "assistant" {
+		if obj.Type != "assistant" &&
+			!(obj.Type == "message_end" && obj.Message.Role == "assistant") {
 			continue
 		}
 		for _, c := range obj.Message.Content {

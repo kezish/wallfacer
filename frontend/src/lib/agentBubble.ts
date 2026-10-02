@@ -52,7 +52,11 @@ export function applyStreamingUpdate(
 /** Assistant text contributed by a single parsed frame (empty if none). */
 export function frameAssistantText(frame: Frame): string {
   let text = '';
-  if (frame.type === 'assistant' && frame.message?.content) {
+  if (
+    (frame.type === 'assistant' ||
+      (frame.type === 'message_end' && frame.message?.role === 'assistant')) &&
+    frame.message?.content
+  ) {
     for (const block of frame.message.content) {
       if (block.type === 'text' && typeof block.text === 'string') {
         text += block.text;
@@ -65,6 +69,21 @@ export function frameAssistantText(frame: Frame): string {
 /** The error string a single frame reports, or '' if it is not an error result. */
 export function frameError(frame: Frame): string {
   if (frame.type === 'result' && frame.is_error && frame.result) return String(frame.result);
+  if (
+    frame.type === 'message_end' &&
+    frame.message?.role === 'assistant' &&
+    (frame.message.stopReason === 'error' || frame.message.stopReason === 'aborted')
+  ) {
+    return frame.message.errorMessage || frame.message.stopReason;
+  }
+  if (frame.type === 'tool_execution_end' && frame.isError) {
+    if (typeof frame.result === 'string') return frame.result;
+    try {
+      return JSON.stringify(frame.result ?? '');
+    } catch {
+      return String(frame.result ?? '');
+    }
+  }
   return '';
 }
 
@@ -83,9 +102,9 @@ export function extractModel(raw: string): string {
   let model = '';
   for (const line of raw.split('\n')) {
     const frame = parseFrameLine(line);
-    if (frame && frame.type === 'assistant') {
+    if (frame) {
       const m = frameModel(frame);
-      if (m) model = m;
+      if (m && frame.type !== 'system') model = m;
     }
   }
   return model;

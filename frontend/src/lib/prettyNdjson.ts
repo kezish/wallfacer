@@ -1,5 +1,5 @@
-// Pretty rendering of Claude Code's NDJSON output stream. Mirrors the
-// shape of ui/js/markdown.js's renderPrettyLogs in a structured form so
+// Pretty rendering of agent NDJSON output streams (Claude Code and Pi).
+// Mirrors the shape of ui/js/markdown.js's renderPrettyLogs in a structured form so
 // the chat panel can render rich activity rows instead of a raw text dump.
 
 export type ActivityKind = 'tool' | 'tool_result' | 'thinking' | 'system' | 'text';
@@ -38,9 +38,25 @@ export interface Frame {
   /** Session-primary model, carried top-level on the system/init line
    *  (e.g. "claude-opus-4-8[1m]"). */
   model?: string;
-  message?: { model?: string; content?: ContentBlock[] };
+  message?: {
+    role?: string;
+    model?: string;
+    provider?: string;
+    stopReason?: string;
+    errorMessage?: string;
+    content?: ContentBlock[];
+  };
+  assistantMessageEvent?: {
+    type?: string;
+    delta?: string;
+    content?: string;
+  };
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  isError?: boolean;
   is_error?: boolean;
-  result?: string;
+  result?: unknown;
 }
 
 // frameModel returns the model a frame reports, or '' when it reports none.
@@ -48,7 +64,15 @@ export interface Frame {
 // assistant line carries the per-turn model nested under message.model.
 export function frameModel(frame: Frame): string {
   if (frame.type === 'system' && frame.model) return frame.model;
-  if (frame.type === 'assistant' && frame.message?.model) return frame.message.model;
+  if (
+    (frame.type === 'assistant' ||
+      frame.type === 'message_start' ||
+      frame.type === 'message_end') &&
+    frame.message?.role !== 'user' &&
+    frame.message?.model
+  ) {
+    return frame.message.model;
+  }
   return '';
 }
 
@@ -113,6 +137,16 @@ function toolPreview(input: Record<string, unknown> | undefined): string | undef
   return undefined;
 }
 
+function piResultText(result: unknown): string {
+  if (result === undefined || result === null) return '';
+  if (typeof result === 'string') return result;
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result);
+  }
+}
+
 function toolResultText(block: ContentBlock): string {
   if (typeof block.content === 'string') return block.content;
   if (Array.isArray(block.content)) {
@@ -152,9 +186,28 @@ export function frameActivityRows(frame: Frame): ActivityRow[] {
       // trajectory, not as activity. Skipping them here avoids the narration
       // showing twice (once as a step, once in the answer).
     }
+  } else if (frame.type === 'tool_execution_start') {
+    out.push({
+      kind: 'tool',
+      label: frame.toolName ?? 'tool',
+      summary: summariseToolInput(frame.args),
+      preview: toolPreview(frame.args),
+      detail: frame.args ? JSON.stringify(frame.args, null, 2) : undefined,
+    });
+  } else if (frame.type === 'tool_execution_end') {
+    if (frame.isError) {
+      const text = piResultText(frame.result);
+      out.push({
+        kind: 'tool_result',
+        label: 'error',
+        summary: truncate(text),
+        detail: text.length > MAX_SUMMARY ? text : undefined,
+        defaultOpen: true,
+      });
+    }
   } else if (frame.type === 'result') {
     // A successful result just repeats the answer; only surface errors.
-    const text = frame.result ?? '';
+    const text = typeof frame.result === 'string' ? frame.result : '';
     if (frame.is_error && text.trim()) {
       out.push({
         kind: 'system',
@@ -200,6 +253,10 @@ export interface TurnAccumulator {
   /** Narration seen since the last flushed step — becomes the answer if no
    *  further step arrives. */
   pending: string;
+  /** True while Pi message_update text deltas have already populated pending.
+   *  The matching message_end carries the full text again and must not append
+   *  it a second time. */
+  piTextStreamed?: boolean;
 }
 
 function flushPending(acc: TurnAccumulator): void {
@@ -238,14 +295,51 @@ export function accumulateFrame(frame: Frame, acc: TurnAccumulator): void {
         });
       }
     }
+  } else if (frame.type === 'message_start' && frame.message?.role === 'assistant') {
+    acc.piTextStreamed = false;
+  } else if (frame.type === 'message_update') {
+    const evt = frame.assistantMessageEvent;
+    if (evt?.type === 'text_delta' && evt.delta) {
+      acc.pending += evt.delta;
+      acc.piTextStreamed = true;
+    }
+  } else if (frame.type === 'message_end' && frame.message?.role === 'assistant') {
+    if (!acc.piTextStreamed) {
+      for (const block of frame.message.content ?? []) {
+        if (block.type === 'text' && block.text) acc.pending += block.text;
+      }
+    }
+    acc.piTextStreamed = false;
+  } else if (frame.type === 'tool_execution_start') {
+    flushPending(acc);
+    acc.rows.push({
+      kind: 'tool',
+      label: frame.toolName ?? 'tool',
+      summary: summariseToolInput(frame.args),
+      preview: toolPreview(frame.args),
+      detail: frame.args ? JSON.stringify(frame.args, null, 2) : undefined,
+    });
+  } else if (frame.type === 'tool_execution_end') {
+    if (frame.isError) {
+      const text = piResultText(frame.result);
+      flushPending(acc);
+      acc.rows.push({
+        kind: 'tool_result',
+        label: 'error',
+        summary: truncate(text),
+        detail: text.length > MAX_SUMMARY ? text : undefined,
+        defaultOpen: true,
+      });
+    }
   } else if (frame.type === 'result') {
-    if (frame.is_error && frame.result?.trim()) {
+    const resultText = typeof frame.result === 'string' ? frame.result : '';
+    if (frame.is_error && resultText.trim()) {
       flushPending(acc);
       acc.rows.push({
         kind: 'system',
         label: 'error',
-        summary: truncate(frame.result),
-        detail: frame.result.length > MAX_SUMMARY ? frame.result : undefined,
+        summary: truncate(resultText),
+        detail: resultText.length > MAX_SUMMARY ? resultText : undefined,
         defaultOpen: true,
       });
     }
@@ -275,7 +369,7 @@ export interface ParsedTurn {
 
 /** One-shot timeline parse over a full raw_output buffer. */
 export function parseTurn(raw: string): ParsedTurn {
-  const acc: TurnAccumulator = { rows: [], pending: '' };
+  const acc: TurnAccumulator = { rows: [], pending: '', piTextStreamed: false };
   for (const line of raw.split('\n')) {
     const frame = parseFrameLine(line);
     if (frame) accumulateFrame(frame, acc);
@@ -318,7 +412,7 @@ export interface TurnParser {
 }
 
 export function createTurnParser(): TurnParser {
-  const acc: TurnAccumulator = { rows: [], pending: '' };
+  const acc: TurnAccumulator = { rows: [], pending: '', piTextStreamed: false };
   let buf = '';
   const consume = (line: string) => {
     const frame = parseFrameLine(line);

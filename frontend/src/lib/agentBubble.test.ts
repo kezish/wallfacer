@@ -144,6 +144,25 @@ describe('bubbleFromMessage', () => {
     expect(b.rawText).toBe('**bold**');
     expect(b.contentHtml).toContain('<strong>');
   });
+  it('parses Pi message_end into assistant text', () => {
+    const raw_output = [
+      JSON.stringify({ type: 'message_start', message: { role: 'assistant', model: 'auto/coding', content: [] } }),
+      JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'PI_JSON_OK' } }),
+      JSON.stringify({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          model: 'auto/coding',
+          content: [{ type: 'text', text: 'PI_JSON_OK' }],
+          stopReason: 'stop',
+        },
+      }),
+    ].join('\n');
+    const b = bubbleFromMessage({ role: 'assistant', content: 'PI_JSON_OK', raw_output } as never);
+    expect(b.rawText).toBe('PI_JSON_OK');
+    expect(b.model).toBe('auto/coding');
+  });
+
   it('parses NDJSON raw_output into text + activity', () => {
     const raw_output = JSON.stringify({
       type: 'assistant',
