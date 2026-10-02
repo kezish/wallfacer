@@ -9,6 +9,7 @@ import (
 	"latere.ai/x/pkg/sanitize"
 
 	"latere.ai/x/wallfacer/internal/agents"
+	"latere.ai/x/wallfacer/internal/harness"
 )
 
 // AgentResponse is the wire shape for an agent descriptor surfaced on
@@ -139,10 +140,10 @@ func validateAgentWrite(req agentWriteRequest) error {
 	if req.Title == "" {
 		return errors.New("title is required")
 	}
-	switch req.Harness {
-	case "", "claude", "codex":
-	default:
-		return fmt.Errorf("harness %q must be empty, claude, or codex", req.Harness)
+	if req.Harness != "" {
+		if _, ok := harness.ParseID(req.Harness); !ok {
+			return fmt.Errorf("harness %q is not registered", req.Harness)
+		}
 	}
 	return nil
 }

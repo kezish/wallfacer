@@ -23,7 +23,10 @@ import (
 // exists so the harness owns the wire knowledge; once upstream callers pass
 // Request directly to Launch, the function disappears.
 func requestFromClaudeSpec(spec ContainerSpec) harness.Request {
-	var req harness.Request
+	// Legacy ContainerSpec commands historically implied a writable agent.
+	// Make that default explicit so PermissionReadOnly is selected only when
+	// a caller intentionally asks for it.
+	req := harness.Request{Permission: harness.PermissionFull}
 	cmd := spec.Cmd
 	for i := 0; i < len(cmd); i++ {
 		switch cmd[i] {
@@ -40,6 +43,18 @@ func requestFromClaudeSpec(spec ContainerSpec) harness.Request {
 		case "--resume":
 			if i+1 < len(cmd) {
 				req.SessionID = cmd[i+1]
+				i++
+			}
+		case "--wallfacer-permission":
+			if i+1 < len(cmd) {
+				switch cmd[i+1] {
+				case "read-only":
+					req.Permission = harness.PermissionReadOnly
+				case "edit":
+					req.Permission = harness.PermissionEdit
+				case "full":
+					req.Permission = harness.PermissionFull
+				}
 				i++
 			}
 		}
@@ -303,8 +318,7 @@ func (b *HostBackend) launchClaude(ctx context.Context, spec ContainerSpec) (Han
 // launchers because they substitute an io.Pipe and run a post-start goroutine.
 type plainHostLaunch struct {
 	id            harness.ID
-	requirePrompt bool // cursor/pi require a -p prompt in spec.Cmd; claude does not
-	forceFull     bool // cursor/pi force PermissionFull (host always runs with write access)
+	requirePrompt bool // harnesses whose print mode requires a prompt
 }
 
 // launchPlainHostAgent runs a host CLI whose native stdout is the stream the
@@ -325,10 +339,6 @@ func (b *HostBackend) launchPlainHostAgent(ctx context.Context, spec ContainerSp
 	if p.requirePrompt && req.Prompt == "" {
 		return nil, fmt.Errorf("host backend: %s launch requires a -p <prompt> argument in spec.Cmd", p.id)
 	}
-	if p.forceFull {
-		req.Permission = harness.PermissionFull
-	}
-
 	agentH, _ := harness.Lookup(p.id)
 	argv, _, argvErr := agentH.BuildArgv(req)
 	if argvErr != nil {

@@ -37,13 +37,11 @@ type Role struct {
 	// source of truth for dispatch.
 	Multiturn bool
 
-	// Harness pins this agent to a specific coding harness
-	// ("claude" or "codex"). Empty means inherit from the runner's
-	// 4-tier resolver (task sandbox → activity env → default env →
-	// Claude). The pin layers above every other tier so a role
-	// that lists Harness="codex" always reaches Codex regardless
-	// of per-task or global settings. Built-in roles leave this
-	// empty; user-authored clones populate it to pin a harness.
+	// Harness pins this agent to a registered coding harness.
+	// Empty means inherit from the runner's resolver. The pin layers
+	// above every task/global tier, so user-authored roles can target
+	// any harness present in the registry without this package knowing
+	// that harness's concrete CLI. Built-in roles leave this empty.
 	Harness string
 
 	// PromptTmpl is the inline system prompt body for a user-

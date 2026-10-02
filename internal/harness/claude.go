@@ -34,6 +34,9 @@ func (claudeHarness) BuildArgv(req Request) ([]string, io.Reader, error) {
 	if req.SessionID != "" {
 		argv = append(argv, "--resume", req.SessionID)
 	}
+	if req.Permission == PermissionReadOnly {
+		argv = append(argv, "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit,Bash")
+	}
 	if req.SystemPrompt != "" {
 		argv = append(argv, "--append-system-prompt", req.SystemPrompt)
 	}

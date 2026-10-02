@@ -21,11 +21,9 @@ import (
 // line that harness.OpenCode.ParseEvent maps to KindResult. This mirrors the
 // codex output-last-message path.
 //
-// One opencode-specific adjustment to the shared Request:
-//
-//   - Permission is forced to Full so opencode runs with
-//     --dangerously-skip-permissions; without it opencode blocks on an
-//     interactive approval prompt and the task never produces a commit.
+// Permission is carried by the canonical Request. Legacy task launches
+// default to Full in requestFromClaudeSpec; explicit restricted callers keep
+// their requested permission so openCodeHarness can map it to plan mode.
 func (b *HostBackend) launchOpenCode(ctx context.Context, spec ContainerSpec) (Handle, error) {
 	bin, err := b.binaryFor(harness.OpenCode)
 	if err != nil {
@@ -40,7 +38,6 @@ func (b *HostBackend) launchOpenCode(ctx context.Context, spec ContainerSpec) (H
 	if req.Prompt == "" {
 		return nil, fmt.Errorf("host backend: opencode launch requires a -p <prompt> argument in spec.Cmd")
 	}
-	req.Permission = harness.PermissionFull
 	req.Cwd = spec.WorkDir
 
 	openCodeH, _ := harness.Lookup(harness.OpenCode)

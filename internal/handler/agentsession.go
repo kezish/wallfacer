@@ -293,6 +293,7 @@ func (h *Handler) SendAgentMessage(w http.ResponseWriter, r *http.Request) {
 		FocusedTask string `json:"focused_task"`
 		Thread      string `json:"thread"`
 		Harness     string `json:"harness"`
+		Model       string `json:"model"`
 	}](w, r)
 	if !ok {
 		return
@@ -439,18 +440,24 @@ func (h *Handler) SendAgentMessage(w http.ResponseWriter, r *http.Request) {
 		prompt = assembleAgentPrompt(h.currentWorkspaces(), req.FocusedSpec, prompt)
 	}
 
-	cmd := []string{"-p", prompt, "--verbose", "--output-format", "stream-json"}
-
-	// Task-mode: strip file-edit tools so the agent cannot modify workspace files.
-	if pinnedTaskID != "" {
-		cmd = append(cmd, "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit")
+	// Build the legacy command envelope once. The host backend re-decodes it
+	// into harness.Request, keeping model and permission harness-agnostic here.
+	buildCmd := func(turnPrompt, sessionID string) []string {
+		cmd := []string{"-p", turnPrompt, "--verbose", "--output-format", "stream-json"}
+		if model := strings.TrimSpace(req.Model); model != "" {
+			cmd = append(cmd, "--model", model)
+		}
+		if pinnedTaskID != "" {
+			cmd = append(cmd, "--wallfacer-permission", "read-only")
+		}
+		if sessionID != "" {
+			cmd = append(cmd, "--resume", sessionID)
+		}
+		return cmd
 	}
 
-	// Resume existing session if available.
 	sess, _ := cs.LoadSession()
-	if sess.SessionID != "" {
-		cmd = append(cmd, "--resume", sess.SessionID)
-	}
+	cmd := buildCmd(prompt, sess.SessionID)
 
 	// Auto-start the agent session if not already running.
 	if !h.agentSession.IsRunning() {
@@ -534,7 +541,7 @@ func (h *Handler) SendAgentMessage(w http.ResponseWriter, r *http.Request) {
 				retryPrompt = historyCtx + retryPrompt
 			}
 			ll2 := h.agentSession.StartLiveLog()
-			retryCmd := []string{"-p", retryPrompt, "--verbose", "--output-format", "stream-json"}
+			retryCmd := buildCmd(retryPrompt, "")
 			retryHandle, retryErr := h.agentSession.Exec(context.Background(), retryCmd, sb)
 			if retryErr != nil {
 				slog.Error("agent retry exec failed", "error", retryErr)
@@ -579,7 +586,7 @@ func (h *Handler) SendAgentMessage(w http.ResponseWriter, r *http.Request) {
 		// stats/usage dashboards reflect the round even if the commit
 		// pipeline below produces a warning. Best-effort: errors are logged
 		// and never fail the round.
-		h.persistAgentRoundUsage(rawStdout)
+		h.persistAgentRoundUsage(rawStdout, sb)
 
 		// Parse response text and append assistant message (skip errors).
 		if !agentsession.IsErrorResult(rawStdout) {
@@ -803,7 +810,7 @@ func (h *Handler) InterruptAgentMessage(w http.ResponseWriter, r *http.Request) 
 // workspace group. Failed rounds, missing usage, and missing workspace
 // configuration short-circuit silently. Append errors are logged so a
 // persistence failure never fails the user-facing round.
-func (h *Handler) persistAgentRoundUsage(raw []byte) {
+func (h *Handler) persistAgentRoundUsage(raw []byte, sb harness.ID) {
 	if agentsession.IsErrorResult(raw) {
 		return
 	}
@@ -831,7 +838,7 @@ func (h *Handler) persistAgentRoundUsage(raw []byte) {
 		CacheCreationTokens:  usage.CacheCreationInputTokens,
 		CostUSD:              usage.CostUSD,
 		StopReason:           usage.StopReason,
-		Sandbox:              harness.Claude,
+		Sandbox:              sb,
 		SubAgent:             store.SandboxActivityAgentSession,
 	}
 	if err := store.AppendAgentSessionUsage(h.configDir, groupKey, rec); err != nil {

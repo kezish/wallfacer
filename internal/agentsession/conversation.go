@@ -367,29 +367,63 @@ func ExtractResultText(raw []byte) string {
 // or expired session by inspecting the structured error fields.
 func IsStaleSessionError(raw []byte) bool {
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	for _, line := range slices.Backward(lines) {
-		line := strings.TrimSpace(line)
+	for _, rawLine := range slices.Backward(lines) {
+		line := strings.TrimSpace(rawLine)
 		if len(line) == 0 || line[0] != '{' {
 			continue
 		}
-		var obj struct {
-			Type    string   `json:"type"`
-			IsError bool     `json:"is_error"`
-			Subtype string   `json:"subtype"`
-			Errors  []string `json:"errors"`
-			Result  string   `json:"result"`
+
+		var envelope struct {
+			Type    string `json:"type"`
+			IsError bool   `json:"is_error"`
+			Message struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+			} `json:"message"`
+			Messages []struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+			} `json:"messages"`
 		}
-		if json.Unmarshal([]byte(line), &obj) != nil || obj.Type != "result" || !obj.IsError {
+		if json.Unmarshal([]byte(line), &envelope) != nil {
 			continue
 		}
-		// Check errors array and result text for session-related failures.
-		for _, e := range obj.Errors {
-			if strings.Contains(e, "session") {
-				return true
+
+		isError := envelope.Type == "result" && envelope.IsError
+		if envelope.Type == "message_end" && envelope.Message.Role == "assistant" {
+			isError = envelope.Message.StopReason == "error" ||
+				envelope.Message.StopReason == "aborted"
+		}
+		if envelope.Type == "agent_end" {
+			for i := len(envelope.Messages) - 1; i >= 0; i-- {
+				if envelope.Messages[i].Role != "assistant" {
+					continue
+				}
+				isError = envelope.Messages[i].StopReason == "error" ||
+					envelope.Messages[i].StopReason == "aborted"
+				break
 			}
 		}
-		if strings.Contains(obj.Result, "session ID") {
-			return true
+		if !isError {
+			continue
+		}
+
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "session") {
+			continue
+		}
+		for _, marker := range []string{
+			"session id",
+			"invalid session",
+			"unknown session",
+			"session not found",
+			"session does not exist",
+			"session expired",
+			"expired session",
+		} {
+			if strings.Contains(lower, marker) {
+				return true
+			}
 		}
 	}
 	return false
