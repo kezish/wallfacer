@@ -672,21 +672,6 @@ func loadOrCreateCookieKey(configDir string) (string, error) {
 	return loadOrCreateSecret(filepath.Join(configDir, "cookie-key"), "cookie key")
 }
 
-// requireClaudeOrExit fails fast when the claude CLI cannot be resolved, so
-// the user-facing `run`/`desktop` commands surface an actionable message at
-// startup instead of on the first task. The runner itself is built
-// best-effort (see runner.NewRunner) so it stays usable for tests and
-// env-config probing; this gate lives only at the command boundary.
-func requireClaudeOrExit(envFile string) {
-	explicit := ""
-	if parsed, err := envconfig.Parse(envFile); err == nil {
-		explicit = parsed.HostClaudeBinary
-	}
-	if err := executor.RequireClaude(explicit); err != nil {
-		logger.Fatal("host sandbox backend", "error", err)
-	}
-}
-
 // RunServer implements the `wallfacer run` subcommand.
 // vueDist and docsFS are the embedded filesystems containing the Vue SPA
 // dist (frontend/dist) and docs/ directory tree respectively.
@@ -705,8 +690,6 @@ func RunServer(configDir string, args []string, vueDist, docsFS fs.FS) {
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
-
-	requireClaudeOrExit(*envFile)
 
 	sc := initServer(configDir, ServerConfig{
 		LogFormat: *logFormat,

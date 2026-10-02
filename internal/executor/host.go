@@ -138,9 +138,9 @@ func (b *HostBackend) SetBinaryForTest(t harness.ID, path string) {
 // NewHostBackend resolves binaries best-effort and returns a HostBackend
 // ready to Launch. An unresolved binary becomes an empty path: Launch then
 // fails with a clear "not resolved" error (see binaryFor) rather than
-// blocking construction. This keeps the runner constructible — and testable
-// — on hosts without the agent CLI installed; `wallfacer run` enforces claude
-// availability up front via RequireClaude.
+// blocking construction. This keeps the server usable when only a subset of
+// harnesses is installed; selecting an unavailable harness fails at launch
+// with a harness-specific binary error.
 func NewHostBackend(cfg HostBackendConfig) (*HostBackend, error) {
 	claude, _ := resolveBinary(cfg.ClaudeBinary, "claude")
 	codex, _ := resolveBinary(cfg.CodexBinary, "codex")
@@ -188,11 +188,9 @@ func (b *HostBackend) acquireSlot(ctx context.Context) (func(), error) {
 	}
 }
 
-// RequireClaude verifies the claude binary can be resolved, returning the
-// actionable error used by `wallfacer run` to fail fast at startup. Backend
-// construction is best-effort (see NewHostBackend); this is the explicit gate
-// for the run command so an operator gets a clear message instead of a cryptic
-// first-task failure.
+// RequireClaude verifies that the claude binary can be resolved. Kept as a
+// focused utility for callers/tests that explicitly require Claude; server
+// startup itself is harness-neutral and does not call this function.
 func RequireClaude(explicit string) error {
 	_, err := resolveBinary(explicit, "claude")
 	return err
