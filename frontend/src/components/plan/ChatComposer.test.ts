@@ -23,6 +23,13 @@ describe('ChatComposer', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; });
 
+  it('shows a generic optional model override', async () => {
+    const { host } = await mount();
+    const input = host.querySelector<HTMLInputElement>('.pcp-model');
+    expect(input).not.toBeNull();
+    expect(input?.getAttribute('placeholder')).toBe('Model (optional)');
+  });
+
   it('shows the / and @ shortcut buttons when the input is empty', async () => {
     const { host } = await mount();
     const actions = host.querySelectorAll('.pcp-composer-actions .pcp-composer-action');

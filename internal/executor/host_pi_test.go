@@ -81,11 +81,9 @@ func launchPiAndDrain(t *testing.T, b *HostBackend, spec ContainerSpec) ([]map[s
 	return lines, lines[len(lines)-1]
 }
 
-// TestHostBackend_LaunchPi_ForcesWritePermission verifies the executor
-// forces Full permission for pi. requestFromClaudeSpec leaves Permission at
-// its ReadOnly zero value, which would restrict pi to --tools Read and
-// prevent any edit; launchPi must override it to Full (no --tools).
-func TestHostBackend_LaunchPi_ForcesWritePermission(t *testing.T) {
+// TestHostBackend_LaunchPi_DefaultsToWritePermission verifies the legacy
+// bridge defaults ordinary launches to Full permission (no --tools).
+func TestHostBackend_LaunchPi_DefaultsToWritePermission(t *testing.T) {
 	bin := buildFakePi(t)
 	b, err := NewHostBackend(HostBackendConfig{AgentNice: -1, PiBinary: bin})
 	if err != nil {
@@ -105,6 +103,28 @@ func TestHostBackend_LaunchPi_ForcesWritePermission(t *testing.T) {
 	}
 	if res, _ := final["result"].(string); !strings.Contains(res, "do the thing") {
 		t.Errorf("result should echo prompt; got %q", res)
+	}
+}
+
+func TestHostBackend_LaunchPi_ExplicitReadOnlyPermission(t *testing.T) {
+	bin := buildFakePi(t)
+	b, err := NewHostBackend(HostBackendConfig{AgentNice: -1, PiBinary: bin})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	spec := ContainerSpec{
+		Name: "wallfacer-pi-readonly",
+		Env:  map[string]string{"WALLFACER_AGENT": "pi"},
+		Cmd: []string{
+			"-p", "inspect only",
+			"--wallfacer-permission", "read-only",
+		},
+		WorkDir: t.TempDir(),
+	}
+	_, final := launchPiAndDrain(t, b, spec)
+	if tools, _ := final["tools"].(string); tools != "Read" {
+		t.Fatalf("pi tools = %q, want Read", tools)
 	}
 }
 

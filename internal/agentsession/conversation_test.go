@@ -532,6 +532,20 @@ func TestIsStaleSessionError_TrueInResult(t *testing.T) {
 	}
 }
 
+func TestIsStaleSessionError_StructuredMessageError(t *testing.T) {
+	raw := `{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"session not found"}}`
+	if !IsStaleSessionError([]byte(raw)) {
+		t.Error("expected structured harness error to be recognized as stale session")
+	}
+}
+
+func TestIsStaleSessionError_AssistantTextMentionIsNotError(t *testing.T) {
+	raw := `{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"session not found is an example"}]}}`
+	if IsStaleSessionError([]byte(raw)) {
+		t.Error("ordinary assistant text must not trigger stale-session retry")
+	}
+}
+
 func TestIsStaleSessionError_False(t *testing.T) {
 	raw := `{"type":"result","is_error":true,"errors":["rate limit exceeded"]}`
 	if IsStaleSessionError([]byte(raw)) {

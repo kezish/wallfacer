@@ -28,6 +28,17 @@ func TestClaude_BuildArgv_Basic(t *testing.T) {
 	}
 }
 
+func TestClaude_BuildArgv_ReadOnly(t *testing.T) {
+	argv, _, _ := claudeHarness{}.BuildArgv(Request{
+		Prompt:     "inspect",
+		Permission: PermissionReadOnly,
+	})
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--disallowedTools Write,Edit,MultiEdit,NotebookEdit,Bash") {
+		t.Fatalf("read-only argv missing tool restriction: %v", argv)
+	}
+}
+
 func TestClaude_BuildArgv_ModelResumeSystemPrompt(t *testing.T) {
 	h := claudeHarness{}
 	argv, _, _ := h.BuildArgv(Request{

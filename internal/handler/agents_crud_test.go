@@ -98,3 +98,32 @@ func TestDeleteAgent_UserAuthoredRoundTrip(t *testing.T) {
 		t.Error("agent still present in registry after delete")
 	}
 }
+
+
+func TestCreateAgent_RegisteredHarnessAccepted(t *testing.T) {
+	h, _ := newTestHandlerWithPrompts(t)
+	rec := postAgentJSON(t, h, map[string]any{
+		"slug":    "pi-agent",
+		"title":   "Pi Agent",
+		"harness": "pi",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	role, ok := h.agentsRegistry().Get("pi-agent")
+	if !ok || role.Harness != "pi" {
+		t.Fatalf("saved role = %+v, ok=%v; want harness=pi", role, ok)
+	}
+}
+
+func TestCreateAgent_UnknownHarnessRejected(t *testing.T) {
+	h, _ := newTestHandlerWithPrompts(t)
+	rec := postAgentJSON(t, h, map[string]any{
+		"slug":    "bad-harness",
+		"title":   "Bad Harness",
+		"harness": "not-registered",
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
+	}
+}
